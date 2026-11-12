@@ -115,7 +115,7 @@ export default function App() {
   function nextUnconfirmed(afterId = current?.id) {
     const start = Math.max(0, visible.findIndex((w) => w.id === afterId));
     return visible.slice(start + 1).find((w) => !confirmed[w.id])?.id
-      ?? visible.slice(0, start + 1).find((w) => !confirmed[w.id])?.id;
+      ?? visible.slice(0, start).find((w) => !confirmed[w.id])?.id;
   }
   async function startRecording() {
     setError("");
