@@ -1,0 +1,306 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { db, type SeedWord, type WordProgress, type WordRecording } from './db'
+
+const categoryLabels: Record<string, string> = {
+  question_words: 'Question words',
+  nature_environment: 'Nature & environment',
+  animals_birds: 'Animals & birds',
+  food_drink: 'Food & drink',
+  common_verbs: 'Common verbs',
+  conversation_responses: 'Conversation responses',
+  pronouns_subject: 'Personal pronouns – subject',
+  pronouns_possessive: 'Possessive pronouns',
+  pronouns_object: 'Object / indirect-object forms',
+  demonstratives: 'Demonstratives'
+}
+
+function categoryName(key: string) {
+  return categoryLabels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
+}
+
+function extensionFor(mimeType: string) {
+  if (mimeType.includes('webm')) return 'webm'
+  if (mimeType.includes('mp4')) return 'm4a'
+  if (mimeType.includes('ogg')) return 'ogg'
+  if (mimeType.includes('wav')) return 'wav'
+  return 'bin'
+}
+
+export default function App() {
+  const [words, setWords] = useState<SeedWord[]>([])
+  const [progress, setProgress] = useState<Record<string, WordProgress>>({})
+  const [recordings, setRecordings] = useState<WordRecording[]>([])
+  const [category, setCategory] = useState('all')
+  const [selectedId, setSelectedId] = useState('')
+  const [recording, setRecording] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('Your recordings are saved in this browser on this device.')
+  const [audioUrl, setAudioUrl] = useState('')
+  const [loading, setLoading] = useState(true)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<BlobPart[]>([])
+  const startedAtRef = useRef(0)
+
+  const categories = useMemo(() => [...new Set(words.map(word => word.category))], [words])
+  const categoryWords = useMemo(
+    () => words.filter(word => category === 'all' || word.category === category),
+    [words, category]
+  )
+  const completedCount = categoryWords.filter(word => progress[word.id]?.status === 'confirmed').length
+  const activeWord = words.find(word => word.id === selectedId) || null
+  const activeRecordings = recordings.filter(item => item.wordId === selectedId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const draftRecording = activeRecordings.find(item => item.status === 'draft') || null
+  const confirmedRecording = activeRecordings.find(item => item.id === progress[selectedId]?.confirmedRecordingId) || null
+  const previewRecording = draftRecording || confirmedRecording
+  const position = activeWord ? categoryWords.findIndex(word => word.id === activeWord.id) + 1 : categoryWords.length
+  const completedWords = categoryWords.filter(word => progress[word.id]?.status === 'confirmed')
+
+  async function refreshWorkspace() {
+    const [wordRows, progressRows, recordingRows] = await Promise.all([
+      db.words.toArray(), db.progress.toArray(), db.recordings.toArray()
+    ])
+    const ordered = wordRows.sort((a, b) => (a.sourceOrder ?? 0) - (b.sourceOrder ?? 0))
+    setWords(ordered)
+    setProgress(Object.fromEntries(progressRows.map(row => [row.wordId, row])))
+    setRecordings(recordingRows)
+    setSelectedId(current => current && ordered.some(word => word.id === current)
+      ? current
+      : ordered.find(word => !progressRows.some(row => row.wordId === word.id && row.status === 'confirmed'))?.id || '')
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    async function initialise() {
+      try {
+        try {
+          if (navigator.storage?.persist) await navigator.storage.persist()
+        } catch {
+          // Browser storage persistence is best-effort.
+        }
+        const seeded = await db.settings.get('words-seed-1.2.0')
+        if (!seeded || await db.words.count() === 0) {
+          const response = await fetch(import.meta.env.BASE_URL + 'words.json')
+          if (!response.ok) throw new Error(`Could not load the vocabulary list (HTTP ${response.status}).`)
+          const payload = await response.json() as { metadata?: { datasetVersion?: string }, items?: SeedWord[] }
+          if (payload.metadata?.datasetVersion !== '1.2.0' || !Array.isArray(payload.items) || payload.items.length !== 80) {
+            throw new Error('The vocabulary data is not the expected approved version (1.2.0).')
+          }
+          const ids = new Set<string>()
+          for (const word of payload.items) {
+            if (!word.id || ids.has(word.id) || !word.category || !word.romanForm?.text || !Array.isArray(word.englishMeaning)) {
+              throw new Error('The vocabulary list contains an invalid or duplicate record.')
+            }
+            ids.add(word.id)
+          }
+          await db.transaction('rw', db.words, db.settings, async () => {
+            for (const [index, word] of payload.items!.entries()) {
+              if (!(await db.words.get(word.id))) await db.words.add({ ...word, sourceOrder: index })
+            }
+            await db.settings.put({ key: 'words-seed-1.2.0', value: String(payload.items!.length) })
+          })
+        }
+        if (!cancelled) await refreshWorkspace()
+      } catch (error) {
+        if (!cancelled) setMessage(error instanceof Error ? error.message : 'The vocabulary list could not be loaded.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void initialise()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!previewRecording) {
+      setAudioUrl('')
+      return
+    }
+    const url = URL.createObjectURL(previewRecording.blob)
+    setAudioUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [previewRecording?.id])
+
+  useEffect(() => () => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop()
+    streamRef.current?.getTracks().forEach(track => track.stop())
+  }, [])
+
+  async function startRecording() {
+    if (!activeWord || busy) return
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setMessage('Recording needs a secure HTTPS connection and a current browser with microphone support.')
+      return
+    }
+    setBusy(true)
+    setMessage('Allow microphone access when your browser asks.')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+      streamRef.current = stream
+      const formats = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+      const mimeType = formats.find(type => MediaRecorder.isTypeSupported(type))
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      const word = activeWord
+      chunksRef.current = []
+      recorder.ondataavailable = event => { if (event.data.size) chunksRef.current.push(event.data) }
+      recorder.onerror = () => setMessage('The browser reported a recording error. Please try again.')
+      recorder.onstop = async () => {
+        const durationMs = Date.now() - startedAtRef.current
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || 'application/octet-stream' })
+        stream.getTracks().forEach(track => track.stop())
+        streamRef.current = null
+        recorderRef.current = null
+        setRecording(false)
+        setBusy(true)
+        try {
+          if (blob.size < 500 || durationMs < 400) {
+            setMessage('The recording was too short or empty. Please record the word again.')
+          } else {
+            const previous = await db.recordings.where('wordId').equals(word.id).toArray()
+            await db.recordings.bulkDelete(previous.filter(item => item.status === 'draft').map(item => item.id))
+            await db.recordings.add({
+              id: crypto.randomUUID(), wordId: word.id, blob, mimeType: blob.type, durationMs,
+              createdAt: new Date().toISOString(), status: 'draft', variant: 'normal',
+              fileExtension: extensionFor(blob.type)
+            })
+            setRecordings(await db.recordings.toArray())
+            setMessage('Recording saved on this device. Play it back, then confirm to continue.')
+          }
+        } catch {
+          setMessage('The recording could not be saved. Check browser storage and try again.')
+        } finally {
+          setBusy(false)
+        }
+      }
+      recorderRef.current = recorder
+      startedAtRef.current = Date.now()
+      recorder.start()
+      setRecording(true)
+      setMessage('Recording… select Stop recording when you have finished speaking.')
+    } catch (error) {
+      streamRef.current?.getTracks().forEach(track => track.stop())
+      streamRef.current = null
+      const denied = error instanceof DOMException && error.name === 'NotAllowedError'
+      setMessage(denied
+        ? 'Microphone permission was denied. Allow it in the browser site settings and try again.'
+        : 'Could not access the microphone. Check the microphone connection and browser permissions.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function stopRecording() {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop()
+  }
+
+  async function confirmAndNext() {
+    if (!activeWord || !draftRecording || busy || recording) return
+    setBusy(true)
+    try {
+      const confirmedAt = new Date().toISOString()
+      await db.transaction('rw', db.recordings, db.progress, async () => {
+        const previous = await db.recordings.where('wordId').equals(activeWord.id).toArray()
+        for (const item of previous) {
+          if (item.status === 'confirmed') await db.recordings.update(item.id, { status: 'superseded' })
+        }
+        await db.recordings.update(draftRecording.id, { status: 'confirmed' })
+        await db.progress.put({ wordId: activeWord.id, status: 'confirmed', confirmedRecordingId: draftRecording.id, confirmedAt })
+      })
+      await refreshWorkspace()
+      const index = categoryWords.findIndex(word => word.id === activeWord.id)
+      const later = [...categoryWords.slice(index + 1), ...categoryWords.slice(0, index)]
+      const next = later.find(word => progress[word.id]?.status !== 'confirmed')
+      setSelectedId(next?.id || '')
+      setMessage(next
+        ? `Confirmed “${activeWord.romanForm.text}”. Moving to the next word.`
+        : `Confirmed “${activeWord.romanForm.text}”. All words in this category are complete.`)
+    } catch {
+      setMessage('Confirmation could not be saved. The recording is still available; please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function changeCategory(value: string) {
+    setCategory(value)
+    const matching = words.filter(word => value === 'all' || word.category === value)
+    setSelectedId(matching.find(word => progress[word.id]?.status !== 'confirmed')?.id || '')
+  }
+
+  const percent = categoryWords.length ? Math.round((completedCount / categoryWords.length) * 100) : 0
+  const complete = categoryWords.length > 0 && completedCount === categoryWords.length
+
+  if (loading) return <main className="shell"><Header /><div className="loading-panel">Loading vocabulary…</div></main>
+
+  return <main className="shell">
+    <Header />
+    <div className="status-line" role="status" aria-live="polite">{message}</div>
+    <section className="progress-area" aria-label="Recording progress">
+      <div className="progress-heading">
+        <span>{category === 'all' ? 'All vocabulary' : categoryName(category)}</span>
+        <strong>{completedCount} / {categoryWords.length} confirmed</strong>
+      </div>
+      <div className="progress-track"><span style={{ width: `${percent}%` }} /></div>
+    </section>
+
+    {activeWord ? <section className="word-card" aria-live="polite">
+      <div className="word-topline">
+        <span className="eyebrow">WORD {String(position).padStart(2, '0')} OF {String(categoryWords.length).padStart(2, '0')}</span>
+        <span className={`state-pill ${progress[activeWord.id]?.status === 'confirmed' ? 'is-done' : ''}`}>
+          {progress[activeWord.id]?.status === 'confirmed' ? 'Audio confirmed' : 'Awaiting recording'}
+        </span>
+      </div>
+      <div className="meaning-label">ENGLISH MEANING</div>
+      <h2 className="meaning">{activeWord.englishMeaning.join(' / ') || 'Meaning not supplied'}</h2>
+      <div className="roman-line">{activeWord.romanForm.text}</div>
+      <div className="script-line" lang="mni">{activeWord.meiteiMayek || 'Meitei Mayek form not supplied'}</div>
+      <div className="record-controls">
+        <button className={`record-button ${recording ? 'recording' : ''}`} onClick={() => recording ? stopRecording() : void startRecording()} disabled={busy}>
+          <span className="record-symbol" />{recording ? 'Stop recording' : busy ? 'Please wait…' : 'Record pronunciation'}
+        </button>
+        <button className="confirm-button" onClick={() => void confirmAndNext()} disabled={!draftRecording || recording || busy}>
+          Confirm & next <span aria-hidden="true">→</span>
+        </button>
+      </div>
+      {previewRecording && audioUrl ? <div className="playback-area">
+        <div className="playback-label"><strong>{draftRecording ? 'Listen before confirming' : 'Confirmed recording'}</strong><span>{(previewRecording.durationMs / 1000).toFixed(1)} sec</span></div>
+        <audio controls preload="metadata" src={audioUrl}>Audio playback is not supported by this browser.</audio>
+      </div> : <p className="recording-help">Record the word clearly. Listen to the recording before confirming it.</p>}
+    </section> : <section className="word-card complete-card">
+      <div className="complete-symbol">✓</div>
+      <h2>{complete ? 'Category completed' : 'No word selected'}</h2>
+      <p>{complete ? `All ${categoryWords.length} words in this category have confirmed recordings.` : 'Choose a word category below.'}</p>
+    </section>}
+
+    <section className="filter-area">
+      <label htmlFor="category-select">Word category</label>
+      <select id="category-select" value={category} disabled={recording || busy} onChange={event => changeCategory(event.target.value)}>
+        <option value="all">All categories ({words.length})</option>
+        {categories.map(value => <option key={value} value={value}>{categoryName(value)} ({words.filter(word => word.category === value).length})</option>)}
+      </select>
+    </section>
+
+    {completedWords.length > 0 && <details className="completed-area">
+      <summary>Revisit a completed word ({completedWords.length})</summary>
+      <select aria-label="Choose a completed word to revisit" value="" disabled={recording || busy} onChange={event => setSelectedId(event.target.value)}>
+        <option value="">Select a word…</option>
+        {completedWords.map(word => <option key={word.id} value={word.id}>{word.englishMeaning.join(' / ')} — {word.romanForm.text}</option>)}
+      </select>
+    </details>}
+
+    <footer><span>Saved on this device only</span><span>•</span><span>Microphone requires HTTPS</span><span>•</span><span>ZIP export planned for a future version</span></footer>
+  </main>
+}
+
+function Header() {
+  return <header className="topbar">
+    <img className="brand-mark" src={import.meta.env.BASE_URL + 'favicon.svg'} alt="" />
+    <div className="brand-copy">
+      <div className="eyebrow">MEITEI MAYEK ACADEMY · CONTENT WORKBENCH</div>
+      <h1>Meitei Words Audio Workbench</h1>
+      <p>One word. One clear recording. Then continue.</p>
+    </div>
+    <div className="local-badge"><span /> Local-first</div>
+  </header>
+}
