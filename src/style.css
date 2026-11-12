@@ -49,6 +49,14 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .playback-label strong { color: #455b41; }
 .playback-label span { color: #899184; }
 .playback-area audio { display: block; width: 100%; height: 42px; }
+.delete-recording-button { margin-left: auto; padding: 5px 8px; border: 0; background: transparent; color: #9a4d43; font-size: 11px; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.delete-recording-button:hover:not(:disabled) { color: #71352e; }
+.delete-confirmation { margin-top: 12px; padding: 12px; border: 1px solid #eed6d1; border-radius: 9px; background: #fff8f6; }
+.delete-confirmation p { margin: 0 0 10px; color: #68453f; font-size: 11px; line-height: 1.5; }
+.delete-confirmation-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.keep-recording-button, .confirm-delete-button { min-height: 36px; padding: 7px 11px; border: 1px solid #dddcd4; border-radius: 7px; background: #fff; color: #465146; font-size: 11px; font-weight: 600; }
+.confirm-delete-button { border-color: #a5483e; background: #a5483e; color: #fff; }
+.confirm-delete-button:hover:not(:disabled) { background: #873b33; }
 .recording-help { margin: 13px 0 0; color: #80897c; text-align: center; font-size: 11px; line-height: 1.55; }
 .filter-area { margin: 18px 0 0; padding: 17px 19px; border: 1px solid #e0e4dc; border-radius: 12px; background: #fff; }
 .filter-area label { display: block; margin-bottom: 8px; color: #586552; font-size: 12px; font-weight: 700; }
@@ -79,6 +87,8 @@ footer { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; padd
   .record-controls { flex-direction: column; }
   .record-button, .confirm-button { width: 100%; }
   .filter-area { padding: 15px; }
+  .playback-label { flex-wrap: wrap; }
+  .delete-recording-button { margin-left: 0; }
   .category-tools { align-items: stretch; flex-direction: column; }
   .export-button { width: 100%; }
 }

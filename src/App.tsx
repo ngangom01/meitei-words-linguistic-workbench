@@ -37,6 +37,7 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('Your recordings are saved in this browser on this device.')
   const [audioUrl, setAudioUrl] = useState('')
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -139,6 +140,7 @@ export default function App() {
 
   async function startRecording() {
     if (!activeWord || busy) return
+    setDeleteTargetId(null)
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       setMessage('Recording needs a secure HTTPS connection and a current browser with microphone support.')
       return
@@ -204,8 +206,37 @@ export default function App() {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') recorderRef.current.stop()
   }
 
+  async function deleteRecording(recordingId: string) {
+    if (busy || recording) return
+    const target = recordings.find(item => item.id === recordingId)
+    if (!target) return
+    setBusy(true)
+    setMessage('Deleting the selected recording…')
+    let removedConfirmedRecording = false
+    try {
+      await db.transaction('rw', db.recordings, db.progress, async () => {
+        const currentProgress = await db.progress.get(target.wordId)
+        await db.recordings.delete(recordingId)
+        if (currentProgress?.confirmedRecordingId === recordingId) {
+          await db.progress.put({ wordId: target.wordId, status: 'pending' })
+          removedConfirmedRecording = true
+        }
+      })
+      setDeleteTargetId(null)
+      await refreshWorkspace()
+      setMessage(removedConfirmedRecording
+        ? 'Recording deleted from this device and future ZIP backups. This word is marked unreviewed again.'
+        : 'Draft deleted from this device and future ZIP backups. Your confirmed recording, if any, is unchanged.')
+    } catch {
+      setMessage('The recording could not be deleted. Please try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function confirmAndNext() {
     if (!activeWord || !draftRecording || busy || recording) return
+    setDeleteTargetId(null)
     setBusy(true)
     try {
       const confirmedAt = new Date().toISOString()
@@ -233,6 +264,7 @@ export default function App() {
   }
 
   function changeCategory(value: string) {
+    setDeleteTargetId(null)
     setCategory(value)
     const matching = words.filter(word => value === 'all' || word.category === value)
     setSelectedId(matching.find(word => progress[word.id]?.status !== 'confirmed')?.id || '')
@@ -339,8 +371,23 @@ export default function App() {
         </button>
       </div>
       {previewRecording && audioUrl ? <div className="playback-area">
-        <div className="playback-label"><strong>{draftRecording ? 'Listen before confirming' : 'Confirmed recording'}</strong><span>{(previewRecording.durationMs / 1000).toFixed(1)} sec</span></div>
+        <div className="playback-label">
+          <strong>{draftRecording ? 'Listen before confirming' : 'Confirmed recording'}</strong>
+          <span>{(previewRecording.durationMs / 1000).toFixed(1)} sec</span>
+          <button className="delete-recording-button" type="button" onClick={() => setDeleteTargetId(previewRecording.id)} disabled={busy || recording}>
+            Delete take
+          </button>
+        </div>
         <audio controls preload="metadata" src={audioUrl}>Audio playback is not supported by this browser.</audio>
+        {deleteTargetId === previewRecording.id && <div className="delete-confirmation" role="group" aria-label="Confirm recording deletion">
+          <p>Delete this take from this device? It will be left out of future ZIP backups.</p>
+          <div className="delete-confirmation-actions">
+            <button className="keep-recording-button" type="button" onClick={() => setDeleteTargetId(null)} disabled={busy}>Keep take</button>
+            <button className="confirm-delete-button" type="button" onClick={() => void deleteRecording(previewRecording.id)} disabled={busy}>
+              {busy ? 'Deleting…' : 'Delete take'}
+            </button>
+          </div>
+        </div>}
       </div> : <p className="recording-help">Record the word clearly. Listen to the recording before confirming it.</p>}
     </section> : <section className="word-card complete-card">
       <div className="complete-symbol">✓</div>
@@ -369,7 +416,7 @@ export default function App() {
 
     {completedWords.length > 0 && <details className="completed-area">
       <summary>Revisit a completed word ({completedWords.length})</summary>
-      <select aria-label="Choose a completed word to revisit" value="" disabled={recording || busy} onChange={event => setSelectedId(event.target.value)}>
+      <select aria-label="Choose a completed word to revisit" value="" disabled={recording || busy} onChange={event => { setDeleteTargetId(null); setSelectedId(event.target.value) }}>
         <option value="">Select a word…</option>
         {completedWords.map(word => <option key={word.id} value={word.id}>{word.englishMeaning.join(' / ')} — {word.romanForm.text}</option>)}
       </select>
