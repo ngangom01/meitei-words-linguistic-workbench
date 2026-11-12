@@ -185,7 +185,7 @@ export default function App() {
     } catch { setError("Confirmation could not be saved. Please try again."); }
   }
   function goBack() {
-    const previous = history.at(-1);
+    const previous = history[history.length - 1];
     if (!previous) return;
     setHistory((old) => old.slice(0, -1));
     setWordId(previous);
