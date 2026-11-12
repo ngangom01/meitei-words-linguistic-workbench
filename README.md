@@ -31,11 +31,12 @@ The category dropdown includes all categories present in that dataset, including
 - Audio is captured in the browser's supported recording format and stored as a binary Blob. It is not uploaded to GitHub or a server.
 - Confirmation is separate from recording: an audio take is initially a draft and is marked confirmed only after **Confirm & next**.
 - Re-recording creates a new draft. Confirming it makes the new take active and preserves earlier takes locally as superseded history.
+- Use **Delete take** beside playback to remove the current draft or confirmed audio from this device and future ZIP backups. Deleting a confirmed take resets that word to unreviewed; deleting a draft leaves any earlier confirmed take unchanged. A confirmation step prevents accidental deletion.
 - Browser storage may be cleared by the user or device. The future ZIP export is intended to contain the word snapshot, recording index, confirmation metadata and original audio files. Until ZIP export is implemented, do not clear browser data or change devices if recordings must be preserved.
 
 ## Download a ZIP backup
 
-Use **Download as ZIP** below the category selector to download a local backup. The archive includes the vocabulary snapshot and approval metadata, all review progress, a recordings index, and every audio take saved in this browser, including draft, confirmed and superseded recordings.
+Use **Download as ZIP** below the category selector to download a local backup. The archive includes the vocabulary snapshot and approval metadata, all review progress, a recordings index, and every remaining audio take saved in this browser, including draft, confirmed and superseded recordings. Takes deleted in the workbench are not included.
 
 ```text
 manifest.json
