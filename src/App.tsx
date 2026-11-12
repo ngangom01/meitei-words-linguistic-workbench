@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import JSZip from 'jszip'
 import { db, type SeedWord, type WordProgress, type WordRecording } from './db'
 
 const categoryLabels: Record<string, string> = {
@@ -48,6 +49,15 @@ export default function App() {
     [words, category]
   )
   const completedCount = categoryWords.filter(word => progress[word.id]?.status === 'confirmed').length
+  const countsByCategory = useMemo(() => {
+    const counts: Record<string, { reviewed: number; total: number }> = {}
+    for (const word of words) {
+      counts[word.category] ??= { reviewed: 0, total: 0 }
+      counts[word.category].total += 1
+      if (progress[word.id]?.status === 'confirmed') counts[word.category].reviewed += 1
+    }
+    return counts
+  }, [words, progress])
   const activeWord = words.find(word => word.id === selectedId) || null
   const activeRecordings = recordings.filter(item => item.wordId === selectedId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -228,6 +238,71 @@ export default function App() {
     setSelectedId(matching.find(word => progress[word.id]?.status !== 'confirmed')?.id || '')
   }
 
+  async function downloadZip() {
+    if (busy || loading) return
+    setBusy(true)
+    setMessage('Preparing your ZIP backup…')
+    try {
+      const [wordRows, progressRows, recordingRows] = await Promise.all([
+        db.words.toArray(), db.progress.toArray(), db.recordings.toArray()
+      ])
+      const orderedWords = wordRows.sort((a, b) => (a.sourceOrder ?? 0) - (b.sourceOrder ?? 0))
+      const exportedAt = new Date().toISOString()
+      const zip = new JSZip()
+
+      zip.file('manifest.json', JSON.stringify({
+        schemaVersion: 1,
+        exportedAt,
+        datasetId: 'meitei-mayek-foundational-learning-seed',
+        datasetVersion: '1.2.0',
+        vocabularyCount: orderedWords.length,
+        confirmedWordCount: progressRows.filter(row => row.status === 'confirmed').length,
+        recordingCount: recordingRows.length,
+        contents: ['words.json', 'progress.json', 'recordings-index.json', 'audio/']
+      }, null, 2))
+      zip.file('words.json', JSON.stringify({
+        metadata: {
+          datasetId: 'meitei-mayek-foundational-learning-seed',
+          datasetVersion: '1.2.0',
+          approvalId: 'approval.vocabulary.2026-11-12.ng01',
+          approvalStatus: 'approved_by_content_owner',
+          exportedAt
+        },
+        items: orderedWords
+      }, null, 2))
+      zip.file('progress.json', JSON.stringify(progressRows, null, 2))
+
+      const recordingIndex = recordingRows.map(recordingRow => {
+        const fileName = `${recordingRow.id}.${recordingRow.fileExtension || extensionFor(recordingRow.mimeType)}`
+        const path = `audio/${fileName}`
+        zip.file(path, recordingRow.blob, { binary: true, compression: 'STORE' })
+        const { blob, ...metadata } = recordingRow
+        return { ...metadata, sizeBytes: blob.size, path }
+      })
+      zip.file('recordings-index.json', JSON.stringify(recordingIndex, null, 2))
+
+      const archive = await zip.generateAsync({
+        type: 'blob',
+        mimeType: 'application/zip',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      })
+      const url = URL.createObjectURL(archive)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `meitei-words-audio-backup-${exportedAt.replace(/[:.]/g, '-')}.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      setMessage(`ZIP backup downloaded: ${orderedWords.length} words and ${recordingRows.length} recordings.`)
+    } catch {
+      setMessage('The ZIP backup could not be prepared. Check available browser storage and try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const percent = categoryWords.length ? Math.round((completedCount / categoryWords.length) * 100) : 0
   const complete = categoryWords.length > 0 && completedCount === categoryWords.length
 
@@ -275,10 +350,21 @@ export default function App() {
 
     <section className="filter-area">
       <label htmlFor="category-select">Word category</label>
-      <select id="category-select" value={category} disabled={recording || busy} onChange={event => changeCategory(event.target.value)}>
-        <option value="all">All categories ({words.length})</option>
-        {categories.map(value => <option key={value} value={value}>{categoryName(value)} ({words.filter(word => word.category === value).length})</option>)}
-      </select>
+      <div className="category-tools">
+        <select id="category-select" value={category} disabled={recording || busy} onChange={event => changeCategory(event.target.value)}>
+          <option value="all">All categories — {completedCount}/{words.length} reviewed</option>
+          {categories.map(value => {
+            const counts = countsByCategory[value] || { reviewed: 0, total: 0 }
+            return <option key={value} value={value}>{categoryName(value)} — {counts.reviewed}/{counts.total} reviewed</option>
+          })}
+        </select>
+        <button className="export-button" type="button" onClick={() => void downloadZip()} disabled={loading || busy || !words.length}>
+          {busy ? 'Preparing ZIP…' : 'Download as ZIP'}
+        </button>
+      </div>
+      <p className="category-summary" role="status" aria-live="polite">
+        Reviewed in {category === 'all' ? 'all categories' : categoryName(category)}: <strong>{completedCount} / {categoryWords.length}</strong> items
+      </p>
     </section>
 
     {completedWords.length > 0 && <details className="completed-area">
@@ -289,7 +375,7 @@ export default function App() {
       </select>
     </details>}
 
-    <footer><span>Saved on this device only</span><span>•</span><span>Microphone requires HTTPS</span><span>•</span><span>ZIP export planned for a future version</span></footer>
+    <footer><span>Saved on this device only</span><span>•</span><span>Microphone requires HTTPS</span><span>•</span><span>ZIP backup available below</span></footer>
   </main>
 }
 

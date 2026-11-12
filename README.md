@@ -33,9 +33,9 @@ The category dropdown includes all categories present in that dataset, including
 - Re-recording creates a new draft. Confirming it makes the new take active and preserves earlier takes locally as superseded history.
 - Browser storage may be cleared by the user or device. The future ZIP export is intended to contain the word snapshot, recording index, confirmation metadata and original audio files. Until ZIP export is implemented, do not clear browser data or change devices if recordings must be preserved.
 
-## ZIP export – planned format
+## Download a ZIP backup
 
-ZIP export is intentionally not part of this first minimal version. The data model is already suitable for it. The planned portable archive will contain:
+Use **Download as ZIP** below the category selector to download a local backup. The archive includes the vocabulary snapshot and approval metadata, all review progress, a recordings index, and every audio take saved in this browser, including draft, confirmed and superseded recordings.
 
 ```text
 manifest.json
@@ -45,7 +45,7 @@ recordings-index.json
 audio/<recording-id>.<extension>
 ```
 
-The recordings index will keep stable word IDs, recording IDs, MIME types, durations, timestamps, status and variant labels. Audio binaries remain separate from JSON. This supports later ZIP backup/export and future mapping to the Academy audio registry without embedding audio as base64 in vocabulary records.
+The archive is created in the browser; recordings are not uploaded. Download a backup before clearing browser storage or moving to another device. The export follows the audio-ready structure intended for later Academy integration.
 
 ## Run locally on Windows
 

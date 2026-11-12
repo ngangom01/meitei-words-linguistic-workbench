@@ -53,6 +53,12 @@ button:disabled { opacity: .48; cursor: not-allowed; }
 .filter-area { margin: 18px 0 0; padding: 17px 19px; border: 1px solid #e0e4dc; border-radius: 12px; background: #fff; }
 .filter-area label { display: block; margin-bottom: 8px; color: #586552; font-size: 12px; font-weight: 700; }
 .filter-area select, .completed-area select { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid #dce1d8; border-radius: 8px; background: #fff; color: #29342a; font-size: 15px; }
+.category-tools { display: flex; align-items: center; gap: 10px; }
+.category-tools select { flex: 1; min-width: 0; }
+.export-button { flex: 0 0 auto; min-height: 46px; padding: 10px 15px; border: 1px solid #304c37; border-radius: 8px; background: #304c37; color: #fff; font-size: 13px; font-weight: 700; }
+.export-button:hover:not(:disabled) { background: #253e2c; }
+.category-summary { margin: 9px 1px 0; color: #778172; font-size: 11px; }
+.category-summary strong { color: #3c523b; }
 .completed-area { margin-top: 12px; padding: 13px 17px; border: 1px solid #e0e4dc; border-radius: 11px; background: #f9faf7; }
 .completed-area summary { color: #586552; cursor: pointer; font-size: 12px; font-weight: 700; }
 .completed-area select { margin-top: 12px; }
@@ -73,6 +79,8 @@ footer { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; padd
   .record-controls { flex-direction: column; }
   .record-button, .confirm-button { width: 100%; }
   .filter-area { padding: 15px; }
+  .category-tools { align-items: stretch; flex-direction: column; }
+  .export-button { width: 100%; }
 }
 @supports (-webkit-touch-callout: none) {
   select { font-size: 16px !important; }
