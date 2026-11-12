@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "dataset": "meitei-words-approved-vocabulary",
+  "contentStatus": "awaiting-approved-seed-import",
+  "approval": { "reviewerId": "NG01", "status": "approved_by_content_owner" },
+  "words": []
+}

@@ -1,42 +1,59 @@
 # Meitei Words Audio Workbench
 
-A simple, local-first browser workbench for recording Meitei vocabulary pronunciations.
+A focused, local-first browser workbench for recording one approved vocabulary item at a time. The original character/sign workbench is a separate repository and is not modified by this project.
 
-## Reviewer workflow
+## Current vocabulary status
 
-1. Read the English meaning, Roman form and Meitei Mayek word.
-2. Select **Record pronunciation** and speak the word.
-3. Select **Stop recording**, then play the audio to check it.
-4. Select **Confirm & next**. The recording is marked confirmed locally and the next unconfirmed word appears.
-5. Use the category dropdown to work through a category. Completed words can be revisited.
+The approved 80-word Academy dataset v1.2.0 was referenced in the planning conversation, but its ZIP attachment is not available in this repository or the connected GitHub files. The reference repository's `public/review-items.json` is a separate character/sign expert-review queue and is not imported here.
 
-## Data
+To avoid inventing or substituting content, `public/words.json` contains an explicit empty import slot. Add the approved records there using this shape:
 
-The app is seeded from the 80-word Academy learning dataset v1.2.0 in `public/words.json`. It retains stable vocabulary IDs and the supplied English, Roman and Meitei Mayek forms.
+```json
+{
+  "schemaVersion": 1,
+  "dataset": "meitei-words-approved-vocabulary",
+  "contentStatus": "imported",
+  "approval": { "reviewerId": "NG01", "status": "approved_by_content_owner" },
+  "words": [
+    {
+      "id": "word.nature.sun",
+      "category": "Nature",
+      "english": "Sun",
+      "roman": "Numit",
+      "meiteiMayek": "ꯅꯨꯃꯤꯠ",
+      "alternatives": []
+    }
+  ]
+}
+```
 
-Words, recordings and confirmation state are stored locally in the browser using IndexedDB. Audio is not uploaded to GitHub or any server. Microphone access requires HTTPS (or localhost) and browser permission. Browser data can be cleared, so preserve this device's browser data until ZIP export is added.
+Keep stable source IDs and supplied alternatives. Each recording is stored separately from vocabulary data and linked by word ID, MIME type, size, duration, timestamps and recording ID.
 
-## ZIP export (future version)
+## Recording workflow
 
-The data model is prepared for a portable ZIP containing `manifest.json`, `words.json`, `progress.json`, `recordings-index.json` and original files under `audio/`. ZIP export is not included in this first minimal release.
+1. Choose a category or **All categories**.
+2. Record, stop, and listen to the draft. Re-recording replaces only the local draft for that word.
+3. Confirm to mark the recording complete and advance to the next unconfirmed item.
+4. Use Previous and Skip to revisit or move onward. Stopped recordings are saved immediately, so navigation and reloads preserve drafts.
 
-## Run locally (Windows)
+Microphone access requires browser permission and HTTPS (or localhost). Audio, progress and active category remain in this browser's IndexedDB/local storage; no audio is uploaded. Clearing browser data removes locally saved work.
 
-```powershell
-git clone https://github.com/ngangom01/meitei-words-linguistic-workbench.git
-cd meitei-words-linguistic-workbench
+## Future ZIP format
+
+A future export can package:
+- `manifest.json` (schema/version, export time and counts)
+- `words.json` (the source vocabulary and approval metadata)
+- `progress.json` (confirmed state and timestamps)
+- `recordings-index.json` (recording IDs, word IDs, MIME type, duration and relative asset paths)
+- `audio/<word-id>/<recording-id>.<extension>` (original audio bytes)
+
+ZIP export is intentionally not part of this minimal version.
+
+## Run locally
+
+```sh
 npm install
 npm run dev
 ```
 
-Build with `npm run build`.
-
-## GitHub Pages
-
-The GitHub Actions workflow deploys the `main` branch. In repository **Settings → Pages → Build and deployment**, select **GitHub Actions**.
-
-The intended app URL is https://ngangom01.github.io/meitei-words-linguistic-workbench/
-
-## Repository separation
-
-This repository shares implementation patterns and visual identity with `meitei-mayek-linguistic-workbench`, but it is separate. Do not push changes to the original character/sign workbench from this repository.
+Run `npm run build` for a production build. GitHub Pages deployment can be enabled through GitHub Actions in repository settings; the configured site path is `/meitei-words-linguistic-workbench/`.
