@@ -90,13 +90,13 @@ export default function App() {
         } catch {
           // Browser storage persistence is best-effort.
         }
-        const seeded = await db.settings.get('words-seed-1.2.0')
+        const seeded = await db.settings.get('words-seed-1.2.1')
         if (!seeded || await db.words.count() === 0) {
           const response = await fetch(import.meta.env.BASE_URL + 'words.json')
           if (!response.ok) throw new Error(`Could not load the vocabulary list (HTTP ${response.status}).`)
           const payload = await response.json() as { metadata?: { datasetVersion?: string }, items?: SeedWord[] }
-          if (payload.metadata?.datasetVersion !== '1.2.0' || !Array.isArray(payload.items) || payload.items.length !== 80) {
-            throw new Error('The vocabulary data is not the expected approved version (1.2.0).')
+          if (payload.metadata?.datasetVersion !== '1.2.1' || !Array.isArray(payload.items) || payload.items.length !== 87) {
+            throw new Error('The vocabulary data is not the expected content version (1.2.1).')
           }
           const ids = new Set<string>()
           for (const word of payload.items) {
@@ -109,7 +109,7 @@ export default function App() {
             for (const [index, word] of payload.items!.entries()) {
               if (!(await db.words.get(word.id))) await db.words.add({ ...word, sourceOrder: index })
             }
-            await db.settings.put({ key: 'words-seed-1.2.0', value: String(payload.items!.length) })
+            await db.settings.put({ key: 'words-seed-1.2.1', value: String(payload.items!.length) })
           })
         }
         if (!cancelled) await refreshWorkspace()
