@@ -1,83 +1,79 @@
 # Meitei Words Audio Workbench
 
-A deliberately simple, local-first browser workbench for recording the pronunciation of the Meitei vocabulary used by Meitei Mayek Academy.
+A simple, local-first recording queue dedicated to whole-syllable pronunciation for the Meitei Mayek Academy Build Syllables feature.
 
-**New repository:** `ngangom01/meitei-words-linguistic-workbench`  
-**Independent from:** `ngangom01/meitei-mayek-linguistic-workbench`
+## Recording queue
 
-The existing character/sign linguistic workbench is a read-only reference for this project. Its repository is not changed by this project.
+The current dataset contains **64 syllable recording tasks** sourced from the Academy's combinations.json:
 
-## What the reviewer does
+| Pattern | Structure | Tasks | Academy status |
+|---|---|---:|---|
+| A | Mapung + Cheitap | 32 | 7 published, 25 draft |
+| B | Mapung + Lonsum | 27 | 27 draft |
+| C | Mapung + Cheitap + Lonsum | 5 | 5 draft |
+| **Total** | | **64** | **7 published, 57 draft** |
+
+The explicitly held draft combo.syllable.a.008 (ꯀꯪ kang) is excluded. All other Sprint 5B.7 combination records are included for recording, including draft candidates.
+
+**Recording is not approval.** Recording a draft combination does not change its Academy status, approvals, publication date or review notes. The original Academy record is preserved in each item's sourceRecord field. The audio purpose for every task is syllable_pronunciation (the whole assembled syllable), not the sound or name of an individual character.
+
+## How to use
 
 1. Open the GitHub Pages app on a device with a microphone.
-2. Read the English meaning, Roman form and Meitei Mayek word.
-3. Select **Record pronunciation** and speak the word.
-4. Select **Stop recording**.
-5. Play the captured audio to check it.
-6. Select **Confirm & next**. The app saves the confirmation locally and advances to the next unconfirmed word.
-7. Use the category dropdown to work through a particular category. Completed words can be revisited from the collapsed list.
+2. Select a category: Build Syllables Pattern A, B or C.
+3. Read the English pattern description, Roman form and Meitei Mayek syllable.
+4. Select Record pronunciation, then Stop recording.
+5. Listen to the recording.
+6. Select Confirm & next to save it locally and advance.
+7. Use the completed-word list to revisit and replace a take if needed.
 
-## Current dataset
+## Local storage migration
 
-The app loads the 80 vocabulary records from the Academy learning seed v1.2.0 (`public/words.json`). It preserves the source word IDs, English meanings, Roman forms, Meitei Mayek forms, categories and source metadata. It does not alter the linguistic content.
+On first open after dataset version 2.0.0 is deployed, the browser database is migrated to this dedicated 64-item queue:
 
-The category dropdown includes all categories present in that dataset, including pronouns and demonstratives. Where the source has no Meitei Mayek form, the app displays “Meitei Mayek form not supplied”; it does not infer one.
+- The former 80 vocabulary records are removed from the active queue.
+- Their browser-stored recordings and progress are removed from this workbench database.
+- The seven existing syllable IDs are retained. Any recordings/progress already saved against those IDs are preserved.
+- The 57 new Sprint 5B.7 candidates are added with their source status still set to draft.
+- No application UI or recording controls are changed by this content refresh.
 
-## Local data and recordings
+The previous 80-word recording export is separate and remains available as a backup. Do not delete that archive unless you no longer need it.
 
-- React + TypeScript + Vite, following the existing Workbench stack.
-- Dexie / IndexedDB stores words, recording blobs and confirmation progress in the browser on the current device.
-- The microphone stream is accessed only after the reviewer selects the recording button.
-- Audio is captured in the browser's supported recording format and stored as a binary Blob. It is not uploaded to GitHub or a server.
-- Confirmation is separate from recording: an audio take is initially a draft and is marked confirmed only after **Confirm & next**.
-- Re-recording creates a new draft. Confirming it makes the new take active and preserves earlier takes locally as superseded history.
-- Use **Delete take** beside playback to remove the current draft or confirmed audio from this device and future ZIP backups. Deleting a confirmed take resets that word to unreviewed; deleting a draft leaves any earlier confirmed take unchanged. A confirmation step prevents accidental deletion.
-- Browser storage may be cleared by the user or device. The future ZIP export is intended to contain the word snapshot, recording index, confirmation metadata and original audio files. Until ZIP export is implemented, do not clear browser data or change devices if recordings must be preserved.
+## Data and future ZIP export
 
-## Download a ZIP backup
+- public/words.json is the only active recording-task dataset.
+- Dexie / IndexedDB stores recording blobs and progress locally on this browser/device.
+- Every task uses the stable Academy combination ID (for example, combo.syllable.a.001).
+- The future ZIP export is intended to contain only this Build Syllables collection: source combination records, recording index, confirmation metadata and audio files.
+- ZIP export is not implemented in this release.
 
-Use **Download as ZIP** below the category selector to download a local backup. The archive includes the vocabulary snapshot and approval metadata, all review progress, a recordings index, and every remaining audio take saved in this browser, including draft, confirmed and superseded recordings. Takes deleted in the workbench are not included.
+Planned archive structure:
 
-```text
-manifest.json
-words.json
-progress.json
-recordings-index.json
-audio/<recording-id>.<extension>
-```
-
-The archive is created in the browser; recordings are not uploaded. Download a backup before clearing browser storage or moving to another device. The export follows the audio-ready structure intended for later Academy integration.
+    Meitei-Academy-Build-Syllables-Audio.zip
+      manifest.json
+      combinations.json
+      recordings-index.json
+      audio/
+        <combination-id>.<extension>
 
 ## Run locally on Windows
 
 Requirements: Node.js 20+ and npm.
 
-```powershell
-git clone https://github.com/ngangom01/meitei-words-linguistic-workbench.git
-cd meitei-words-linguistic-workbench
-npm install
-npm run dev
-```
+    git clone https://github.com/ngangom01/meitei-words-linguistic-workbench.git
+    cd meitei-words-linguistic-workbench
+    npm install
+    npm run dev
 
-Open the local URL shown by Vite. Browser microphone permission is required. Local development on `localhost` is treated as a secure context by modern browsers.
+Open the local URL shown by Vite. Microphone access is required. For the deployed app, HTTPS and browser microphone permission are required.
 
-Build and preview:
+## Deploy
 
-```powershell
-npm run build
-npm run preview
-```
+GitHub Actions builds and deploys the dist folder from main.
 
-## GitHub Pages deployment
-
-The repository includes a GitHub Actions workflow that builds and deploys the `dist` folder from `main`.
-
-In GitHub, open **Settings → Pages → Build and deployment** and select **GitHub Actions** as the source. The deployment URL will be:
-
+Application URL:
 https://ngangom01.github.io/meitei-words-linguistic-workbench/
 
-Microphone recording on the deployed app requires HTTPS and browser permission. Use a current version of Chrome, Edge or Safari.
+## Repository separation
 
-## Repository separation rule
-
-Do not push changes to `meitei-mayek-linguistic-workbench` from this project. This new repository shares patterns and the open-book/audio visual identity only. Its IndexedDB database name, vocabulary dataset, app title, GitHub Pages base path and deployment workflow are independent.
+The original meitei-mayek-linguistic-workbench is not modified by this project.

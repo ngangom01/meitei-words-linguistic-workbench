@@ -90,13 +90,13 @@ export default function App() {
         } catch {
           // Browser storage persistence is best-effort.
         }
-        const seeded = await db.settings.get('words-seed-1.2.1')
+        const seeded = await db.settings.get('build-syllables-seed-2.0.0')
         if (!seeded || await db.words.count() === 0) {
           const response = await fetch(import.meta.env.BASE_URL + 'words.json')
           if (!response.ok) throw new Error(`Could not load the vocabulary list (HTTP ${response.status}).`)
           const payload = await response.json() as { metadata?: { datasetVersion?: string }, items?: SeedWord[] }
-          if (payload.metadata?.datasetVersion !== '1.2.1' || !Array.isArray(payload.items) || payload.items.length !== 87) {
-            throw new Error('The vocabulary data is not the expected content version (1.2.1).')
+          if (payload.metadata?.datasetVersion !== '2.0.0' || payload.metadata?.datasetType !== 'build_syllables_audio_recording_queue' || !Array.isArray(payload.items) || payload.items.length !== 64) {
+            throw new Error('The Build Syllables recording set is not the expected version (2.0.0).')
           }
           const ids = new Set<string>()
           for (const word of payload.items) {
@@ -105,11 +105,36 @@ export default function App() {
             }
             ids.add(word.id)
           }
-          await db.transaction('rw', db.words, db.settings, async () => {
+          await db.transaction('rw', db.words, db.recordings, db.progress, db.settings, async () => {
+            const incomingIds = new Set(payload.items!.map(word => word.id))
+            const existingWords = await db.words.toArray()
+            const obsoleteIds = existingWords.filter(word => !incomingIds.has(word.id)).map(word => word.id)
+
+            // Keep only Build Syllables items. Remove old vocabulary records, their recordings and progress.
+            // Matching syllable IDs and their recordings/progress are deliberately retained.
+            const existingRecordings = await db.recordings.toArray()
+            const obsoleteRecordingIds = existingRecordings
+              .filter(recording => !incomingIds.has(recording.wordId))
+              .map(recording => recording.id)
+            const existingProgress = await db.progress.toArray()
+            const obsoleteProgressIds = existingProgress
+              .filter(progress => !incomingIds.has(progress.wordId))
+              .map(progress => progress.wordId)
+
+            await db.words.bulkDelete(obsoleteIds)
+            await db.recordings.bulkDelete(obsoleteRecordingIds)
+            await db.progress.bulkDelete(obsoleteProgressIds)
+
             for (const [index, word] of payload.items!.entries()) {
-              if (!(await db.words.get(word.id))) await db.words.add({ ...word, sourceOrder: index })
+              const existing = await db.words.get(word.id)
+              await db.words.put({ ...existing, ...word, sourceOrder: index })
             }
-            await db.settings.put({ key: 'words-seed-1.2.1', value: String(payload.items!.length) })
+
+            const oldSeedKeys = (await db.settings.toArray())
+              .filter(setting => setting.key.startsWith('words-seed-'))
+              .map(setting => setting.key)
+            await db.settings.bulkDelete(oldSeedKeys)
+            await db.settings.put({ key: 'build-syllables-seed-2.0.0', value: String(payload.items!.length) })
           })
         }
         if (!cancelled) await refreshWorkspace()
