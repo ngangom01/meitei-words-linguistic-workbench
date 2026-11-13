@@ -3,16 +3,9 @@ import JSZip from 'jszip'
 import { db, type SeedWord, type WordProgress, type WordRecording } from './db'
 
 const categoryLabels: Record<string, string> = {
-  question_words: 'Question words',
-  nature_environment: 'Nature & environment',
-  animals_birds: 'Animals & birds',
-  food_drink: 'Food & drink',
-  common_verbs: 'Common verbs',
-  conversation_responses: 'Conversation responses',
-  pronouns_subject: 'Personal pronouns – subject',
-  pronouns_possessive: 'Possessive pronouns',
-  pronouns_object: 'Object / indirect-object forms',
-  demonstratives: 'Demonstratives'
+  build_syllables_pattern_a: 'Pattern A · Mapung + Cheitap',
+  build_syllables_pattern_b: 'Pattern B · Mapung + Lonsum',
+  build_syllables_pattern_c: 'Pattern C · Mapung + Cheitap + Lonsum'
 }
 
 function categoryName(key: string) {
@@ -35,7 +28,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState('')
   const [recording, setRecording] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState('Your recordings are saved in this browser on this device.')
+  const [message, setMessage] = useState('Your syllable recordings are saved in this browser on this device.')
   const [audioUrl, setAudioUrl] = useState('')
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -93,7 +86,7 @@ export default function App() {
         const seeded = await db.settings.get('build-syllables-seed-2.0.0')
         if (!seeded || await db.words.count() === 0) {
           const response = await fetch(import.meta.env.BASE_URL + 'words.json')
-          if (!response.ok) throw new Error(`Could not load the vocabulary list (HTTP ${response.status}).`)
+          if (!response.ok) throw new Error(`Could not load the Build Syllables recording set (HTTP ${response.status}).`)
           const payload = await response.json() as { metadata?: { datasetVersion?: string; datasetType?: string }, items?: SeedWord[] }
           if (payload.metadata?.datasetVersion !== '2.0.0' || payload.metadata?.datasetType !== 'build_syllables_audio_recording_queue' || !Array.isArray(payload.items) || payload.items.length !== 64) {
             throw new Error('The Build Syllables recording set is not the expected version (2.0.0).')
@@ -101,7 +94,7 @@ export default function App() {
           const ids = new Set<string>()
           for (const word of payload.items) {
             if (!word.id || ids.has(word.id) || !word.category || !word.romanForm?.text || !Array.isArray(word.englishMeaning)) {
-              throw new Error('The vocabulary list contains an invalid or duplicate record.')
+              throw new Error('The syllable set contains an invalid or duplicate record.')
             }
             ids.add(word.id)
           }
@@ -139,7 +132,7 @@ export default function App() {
         }
         if (!cancelled) await refreshWorkspace()
       } catch (error) {
-        if (!cancelled) setMessage(error instanceof Error ? error.message : 'The vocabulary list could not be loaded.')
+        if (!cancelled) setMessage(error instanceof Error ? error.message : 'The Build Syllables data could not be loaded.')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -192,7 +185,7 @@ export default function App() {
         setBusy(true)
         try {
           if (blob.size < 500 || durationMs < 400) {
-            setMessage('The recording was too short or empty. Please record the word again.')
+            setMessage('The recording was too short or empty. Please record the syllable again.')
           } else {
             const previous = await db.recordings.where('wordId').equals(word.id).toArray()
             await db.recordings.bulkDelete(previous.filter(item => item.status === 'draft').map(item => item.id))
@@ -250,7 +243,7 @@ export default function App() {
       setDeleteTargetId(null)
       await refreshWorkspace()
       setMessage(removedConfirmedRecording
-        ? 'Recording deleted from this device and future ZIP backups. This word is marked unreviewed again.'
+        ? 'Recording deleted from this device and future ZIP backups. This syllable is marked unreviewed again.'
         : 'Draft deleted from this device and future ZIP backups. Your confirmed recording, if any, is unchanged.')
     } catch {
       setMessage('The recording could not be deleted. Please try again.')
@@ -279,8 +272,8 @@ export default function App() {
       const next = later.find(word => progress[word.id]?.status !== 'confirmed')
       setSelectedId(next?.id || '')
       setMessage(next
-        ? `Confirmed “${activeWord.romanForm.text}”. Moving to the next word.`
-        : `Confirmed “${activeWord.romanForm.text}”. All words in this category are complete.`)
+        ? `Confirmed syllable “${activeWord.romanForm.text}”. Moving to the next syllable.`
+        : `Confirmed “${activeWord.romanForm.text}”. All syllables in this category are complete.`)
     } catch {
       setMessage('Confirmation could not be saved. The recording is still available; please try again.')
     } finally {
@@ -298,45 +291,120 @@ export default function App() {
   async function downloadZip() {
     if (busy || loading) return
     setBusy(true)
-    setMessage('Preparing your ZIP backup…')
+    setMessage('Preparing your Build Syllables ZIP package…')
     try {
-      const [wordRows, progressRows, recordingRows] = await Promise.all([
+      const [syllableRows, progressRows, recordingRows] = await Promise.all([
         db.words.toArray(), db.progress.toArray(), db.recordings.toArray()
       ])
-      const orderedWords = wordRows.sort((a, b) => (a.sourceOrder ?? 0) - (b.sourceOrder ?? 0))
+      const orderedSyllables = syllableRows.sort((a, b) => (a.sourceOrder ?? 0) - (b.sourceOrder ?? 0))
       const exportedAt = new Date().toISOString()
       const zip = new JSZip()
 
+      const patternCounts = orderedSyllables.reduce((counts, syllable) => {
+        const pattern = String(syllable.patternId ?? 'unknown')
+        counts[pattern] = (counts[pattern] || 0) + 1
+        return counts
+      }, {} as Record<string, number>)
+      const academyStatusCounts = orderedSyllables.reduce((counts, syllable) => {
+        const status = String(syllable.academyStatus ?? 'unknown')
+        counts[status] = (counts[status] || 0) + 1
+        return counts
+      }, {} as Record<string, number>)
+      const academyRecords = orderedSyllables
+        .map(syllable => syllable.sourceRecord)
+        .filter((record): record is Record<string, unknown> => record !== null && typeof record === 'object')
+
+      if (academyRecords.length !== orderedSyllables.length) {
+        throw new Error('One or more syllables are missing their original Academy combination record.')
+      }
+
+      const completedSyllableCount = progressRows.filter(row => row.status === 'confirmed').length
+      const activeRecordingCount = recordingRows.filter(row => row.status === 'confirmed').length
+
       zip.file('manifest.json', JSON.stringify({
         schemaVersion: 1,
+        packageType: 'meitei-mayek-academy-build-syllables-audio-submission',
         exportedAt,
-        datasetId: 'meitei-mayek-foundational-learning-seed',
-        datasetVersion: '1.2.0',
-        vocabularyCount: orderedWords.length,
-        confirmedWordCount: progressRows.filter(row => row.status === 'confirmed').length,
+        datasetId: 'meitei-mayek-academy-build-syllables',
+        datasetVersion: '2.0.0',
+        datasetType: 'build_syllables_audio_recording_queue',
+        sourceFile: 'assets/content/combinations/combinations.json',
+        sourceSchemaVersion: 2,
+        audioPurpose: 'syllable_pronunciation',
+        syllableCount: orderedSyllables.length,
+        confirmedSyllableCount: completedSyllableCount,
         recordingCount: recordingRows.length,
-        contents: ['words.json', 'progress.json', 'recordings-index.json', 'audio/']
+        confirmedRecordingCount: activeRecordingCount,
+        patternCounts,
+        academyStatusCounts,
+        contents: [
+          'syllables.json',
+          'academy-combinations.json',
+          'progress.json',
+          'recordings-index.json',
+          'audio/'
+        ],
+        publicationNote: 'Recording a draft combination does not approve or publish it. Original Academy status and review metadata are retained unchanged.'
       }, null, 2))
-      zip.file('words.json', JSON.stringify({
+
+      zip.file('syllables.json', JSON.stringify({
         metadata: {
-          datasetId: 'meitei-mayek-foundational-learning-seed',
-          datasetVersion: '1.2.0',
-          approvalId: 'approval.vocabulary.2026-11-12.ng01',
-          approvalStatus: 'approved_by_content_owner',
+          datasetId: 'meitei-mayek-academy-build-syllables',
+          datasetVersion: '2.0.0',
+          datasetType: 'build_syllables_audio_recording_queue',
+          sourceFile: 'assets/content/combinations/combinations.json',
+          sourceSchemaVersion: 2,
+          audioPurpose: 'syllable_pronunciation',
           exportedAt
         },
-        items: orderedWords
+        items: orderedSyllables
       }, null, 2))
-      zip.file('progress.json', JSON.stringify(progressRows, null, 2))
+
+      zip.file('academy-combinations.json', JSON.stringify({
+        schemaVersion: 2,
+        kind: 'combination',
+        records: academyRecords
+      }, null, 2))
+
+      zip.file('progress.json', JSON.stringify(progressRows.map(row => ({
+        syllableId: row.wordId,
+        status: row.status,
+        confirmedRecordingId: row.confirmedRecordingId ?? null,
+        confirmedAt: row.confirmedAt ?? null
+      })), null, 2))
 
       const recordingIndex = recordingRows.map(recordingRow => {
         const fileName = `${recordingRow.id}.${recordingRow.fileExtension || extensionFor(recordingRow.mimeType)}`
         const path = `audio/${fileName}`
         zip.file(path, recordingRow.blob, { binary: true, compression: 'STORE' })
-        const { blob, ...metadata } = recordingRow
-        return { ...metadata, sizeBytes: blob.size, path }
+        const { blob, wordId, ...metadata } = recordingRow
+        return {
+          ...metadata,
+          syllableId: wordId,
+          audioPurpose: 'syllable_pronunciation',
+          sizeBytes: blob.size,
+          path
+        }
       })
       zip.file('recordings-index.json', JSON.stringify(recordingIndex, null, 2))
+
+      zip.file('README.txt', [
+        'Meitei Mayek Academy — Build Syllables Audio Package',
+        '',
+        'This archive contains whole-syllable pronunciation recordings for the Academy Build Syllables feature.',
+        'It is not a vocabulary-word audio export.',
+        '',
+        'syllables.json: workbench records with stable Academy combination IDs and source metadata.',
+        'academy-combinations.json: original Academy combination records, including publication and review status.',
+        'progress.json: recording confirmation status keyed by syllable ID.',
+        'recordings-index.json: audio file metadata, purpose, status and syllable ID mapping.',
+        'audio/: original recorded audio files.',
+        '',
+        'Audio purpose: syllable_pronunciation (whole assembled syllable).',
+        'Recording a draft candidate does not approve or publish it in the Academy.',
+        'Draft/published status and Academy review metadata are carried through unchanged.',
+        ''
+      ].join('\n'))
 
       const archive = await zip.generateAsync({
         type: 'blob',
@@ -347,14 +415,16 @@ export default function App() {
       const url = URL.createObjectURL(archive)
       const link = document.createElement('a')
       link.href = url
-      link.download = `meitei-words-audio-backup-${exportedAt.replace(/[:.]/g, '-')}.zip`
+      link.download = `meitei-build-syllables-audio-${exportedAt.replace(/[:.]/g, '-')}.zip`
       document.body.appendChild(link)
       link.click()
       link.remove()
       window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
-      setMessage(`ZIP backup downloaded: ${orderedWords.length} words and ${recordingRows.length} recordings.`)
-    } catch {
-      setMessage('The ZIP backup could not be prepared. Check available browser storage and try again.')
+      setMessage(`Build Syllables ZIP downloaded: ${orderedSyllables.length} syllables and ${recordingRows.length} audio takes.`)
+    } catch (error) {
+      setMessage(error instanceof Error
+        ? error.message
+        : 'The Build Syllables ZIP could not be prepared. Check available browser storage and try again.')
     } finally {
       setBusy(false)
     }
@@ -363,14 +433,14 @@ export default function App() {
   const percent = categoryWords.length ? Math.round((completedCount / categoryWords.length) * 100) : 0
   const complete = categoryWords.length > 0 && completedCount === categoryWords.length
 
-  if (loading) return <main className="shell"><Header /><div className="loading-panel">Loading vocabulary…</div></main>
+  if (loading) return <main className="shell"><Header /><div className="loading-panel">Loading syllable recording set…</div></main>
 
   return <main className="shell">
     <Header />
     <div className="status-line" role="status" aria-live="polite">{message}</div>
     <section className="progress-area" aria-label="Recording progress">
       <div className="progress-heading">
-        <span>{category === 'all' ? 'All vocabulary' : categoryName(category)}</span>
+        <span>{category === 'all' ? 'All syllables' : categoryName(category)}</span>
         <strong>{completedCount} / {categoryWords.length} confirmed</strong>
       </div>
       <div className="progress-track"><span style={{ width: `${percent}%` }} /></div>
@@ -378,12 +448,12 @@ export default function App() {
 
     {activeWord ? <section className="word-card" aria-live="polite">
       <div className="word-topline">
-        <span className="eyebrow">WORD {String(position).padStart(2, '0')} OF {String(categoryWords.length).padStart(2, '0')}</span>
+        <span className="eyebrow">SYLLABLE {String(position).padStart(2, '0')} OF {String(categoryWords.length).padStart(2, '0')}</span>
         <span className={`state-pill ${progress[activeWord.id]?.status === 'confirmed' ? 'is-done' : ''}`}>
           {progress[activeWord.id]?.status === 'confirmed' ? 'Audio confirmed' : 'Awaiting recording'}
         </span>
       </div>
-      <div className="meaning-label">ENGLISH MEANING</div>
+      <div className="meaning-label">SYLLABLE PATTERN</div>
       <h2 className="meaning">{activeWord.englishMeaning.join(' / ') || 'Meaning not supplied'}</h2>
       <div className="roman-line">{activeWord.romanForm.text}</div>
       <div className="script-line" lang="mni">{activeWord.meiteiMayek || 'Meitei Mayek form not supplied'}</div>
@@ -413,41 +483,41 @@ export default function App() {
             </button>
           </div>
         </div>}
-      </div> : <p className="recording-help">Record the word clearly. Listen to the recording before confirming it.</p>}
+      </div> : <p className="recording-help">Record the whole syllable clearly. Listen to the recording before confirming it.</p>}
     </section> : <section className="word-card complete-card">
       <div className="complete-symbol">✓</div>
-      <h2>{complete ? 'Category completed' : 'No word selected'}</h2>
-      <p>{complete ? `All ${categoryWords.length} words in this category have confirmed recordings.` : 'Choose a word category below.'}</p>
+      <h2>{complete ? 'Pattern completed' : 'No syllable selected'}</h2>
+      <p>{complete ? `All ${categoryWords.length} syllables in this pattern have confirmed recordings.` : 'Choose a syllable pattern below.'}</p>
     </section>}
 
     <section className="filter-area">
-      <label htmlFor="category-select">Word category</label>
+      <label htmlFor="category-select">Syllable pattern</label>
       <div className="category-tools">
         <select id="category-select" value={category} disabled={recording || busy} onChange={event => changeCategory(event.target.value)}>
-          <option value="all">All categories — {completedCount}/{words.length} reviewed</option>
+          <option value="all">All syllables — {completedCount}/{words.length} confirmed</option>
           {categories.map(value => {
             const counts = countsByCategory[value] || { reviewed: 0, total: 0 }
             return <option key={value} value={value}>{categoryName(value)} — {counts.reviewed}/{counts.total} reviewed</option>
           })}
         </select>
         <button className="export-button" type="button" onClick={() => void downloadZip()} disabled={loading || busy || !words.length}>
-          {busy ? 'Preparing ZIP…' : 'Download as ZIP'}
+          {busy ? 'Preparing ZIP…' : 'Download Build Syllables ZIP'}
         </button>
       </div>
       <p className="category-summary" role="status" aria-live="polite">
-        Reviewed in {category === 'all' ? 'all categories' : categoryName(category)}: <strong>{completedCount} / {categoryWords.length}</strong> items
+        Recorded in {category === 'all' ? 'all patterns' : categoryName(category)}: <strong>{completedCount} / {categoryWords.length}</strong> items
       </p>
     </section>
 
     {completedWords.length > 0 && <details className="completed-area">
-      <summary>Revisit a completed word ({completedWords.length})</summary>
-      <select aria-label="Choose a completed word to revisit" value="" disabled={recording || busy} onChange={event => { setDeleteTargetId(null); setSelectedId(event.target.value) }}>
-        <option value="">Select a word…</option>
+      <summary>Revisit a completed syllable ({completedWords.length})</summary>
+      <select aria-label="Choose a completed syllable to revisit" value="" disabled={recording || busy} onChange={event => { setDeleteTargetId(null); setSelectedId(event.target.value) }}>
+        <option value="">Select a syllable…</option>
         {completedWords.map(word => <option key={word.id} value={word.id}>{word.englishMeaning.join(' / ')} — {word.romanForm.text}</option>)}
       </select>
     </details>}
 
-    <footer><span>Saved on this device only</span><span>•</span><span>Microphone requires HTTPS</span><span>•</span><span>ZIP backup available below</span></footer>
+    <footer><span>Saved on this device only</span><span>•</span><span>Microphone requires HTTPS</span><span>•</span><span>Build Syllables ZIP export available below</span></footer>
   </main>
 }
 
@@ -455,9 +525,9 @@ function Header() {
   return <header className="topbar">
     <img className="brand-mark" src={import.meta.env.BASE_URL + 'favicon.svg'} alt="" />
     <div className="brand-copy">
-      <div className="eyebrow">MEITEI MAYEK ACADEMY · CONTENT WORKBENCH</div>
-      <h1>Meitei Words Audio Workbench</h1>
-      <p>One word. One clear recording. Then continue.</p>
+      <div className="eyebrow">MEITEI MAYEK ACADEMY · BUILD SYLLABLES</div>
+      <h1>Meitei Mayek Syllable Audio Workbench</h1>
+      <p>Record the whole syllable, check it, and continue.</p>
     </div>
     <div className="local-badge"><span /> Local-first</div>
   </header>
