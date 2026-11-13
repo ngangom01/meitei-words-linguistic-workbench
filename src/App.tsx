@@ -94,7 +94,7 @@ export default function App() {
         if (!seeded || await db.words.count() === 0) {
           const response = await fetch(import.meta.env.BASE_URL + 'words.json')
           if (!response.ok) throw new Error(`Could not load the vocabulary list (HTTP ${response.status}).`)
-          const payload = await response.json() as { metadata?: { datasetVersion?: string }, items?: SeedWord[] }
+          const payload = await response.json() as { metadata?: { datasetVersion?: string; datasetType?: string }, items?: SeedWord[] }
           if (payload.metadata?.datasetVersion !== '2.0.0' || payload.metadata?.datasetType !== 'build_syllables_audio_recording_queue' || !Array.isArray(payload.items) || payload.items.length !== 64) {
             throw new Error('The Build Syllables recording set is not the expected version (2.0.0).')
           }
